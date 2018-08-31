@@ -1,0 +1,161 @@
+include "global.tbh"
+dim wln_dhcp_fail_ctr as byte 
+dim transfer_socket as byte = 5 
+
+sub on_sys_init()
+	
+	wln_start("Tibbo9F",WLN_SECURITY_MODE_WPA2,"16836836",PL_WLN_DOMAIN_FCC,YES,PL_WLN_SCAN_ALL)
+	init_bluetooth()
+	init_receive_socket()
+	
+
+end sub
+
+sub init_bluetooth()
+	
+	bt.emulation= PL_WLN_BT_EMULATION_MODE_MICROCHIP
+	bt.name="BT-WLN-Echo-Test"
+	bt.rxbuffrq(4)	
+	bt.txbuffrq(4)	
+	sys.buffalloc
+	bt.enable
+
+end sub
+
+sub init_receive_socket()
+
+	dim prevsock as byte=sock.num
+	sock.num=transfer_socket
+	sock.targetinterface=PL_SOCK_INTERFACE_WLN
+	sock.protocol=PL_SOCK_PROTOCOL_TCP
+	sock.inconmode=PL_SOCK_INCONMODE_ANY_IP_ANY_PORT
+	sock.allowedinterfaces="WLN,NET"
+	sock.localportlist="1000"
+	sock.rxbuffrq(16)
+	sock.txbuffrq(16) 
+	sys.buffalloc
+	sock.num=prevsock
+
+end sub
+
+sub on_sys_timer()
+	
+	wln_proc_timer()
+	dhcp_proc_timer()
+	
+end sub
+
+sub on_sock_data_arrival()
+	
+	dhcp_proc_data()
+	
+	if sock.num=transfer_socket then
+		dim s as string = sock.getdata(255)
+		bt.setdata(s)
+		bt.send
+	end if
+	
+end sub
+
+sub on_bt_data_arrival()
+	
+	dim prevsock as byte=sock.num
+	
+	dim s as string = bt.getdata(255)
+	sock.num=transfer_socket
+	sock.setdata(s)
+	sock.send
+	
+	sock.num=prevsock
+	
+end sub
+
+sub on_wln_task_complete(completed_task as pl_wln_tasks)
+		
+	wln_proc_task_complete(completed_task)
+
+end sub
+
+sub on_wln_event(wln_event as pl_wln_events)
+
+	wln_proc_event(wln_event)
+
+end sub
+
+sub callback_wln_ok()
+	
+	dhcp_start(PL_SOCK_INTERFACE_WLN,"","")
+	
+end sub
+
+sub on_bt_event(bt_event as enum pl_bt_events)
+
+	select case bt_event
+	case PL_BT_EVENT_CONNECTED:
+		sys.debugprint("BT Connected\r\n")
+	case PL_BT_EVENT_DISCONNECTED:
+		sys.debugprint("BT Disconnected\r\n")
+	case PL_BT_EVENT_ENABLED:
+		bt.advertise = YES
+	case PL_BT_EVENT_DISABLED:
+		sys.debugprint("BT Power Off\r\n")
+	end select
+
+end sub
+
+sub callback_dhcp_ok(renew as no_yes, interface as pl_sock_interfaces, byref ip as string, byref gateway_ip as string, byref netmask as string, lease_time as dword)
+	
+	if interface=PL_SOCK_INTERFACE_WLN then
+		if renew=YES and wln.ip<>ip then
+			sys.reboot
+		end if
+		if wln.ip<>ip then
+			wln.ip=ip
+			wln.gatewayip=gateway_ip
+			wln.netmask=netmask
+		end if
+	end if
+				
+end sub
+
+sub callback_dhcp_failure(interface as pl_sock_interfaces,failure_code as en_dhcp_status_codes)
+
+	if interface=PL_SOCK_INTERFACE_WLN then
+		if wln_dhcp_fail_ctr>=DHCP_FAIL_LIMIT then
+			wln.ip=ALT_WLN_IP
+			wln.gatewayip=ALT_WLN_GATEWAY_IP
+			wln.netmask=ALT_WLN_NETMASK
+			dhcp_stop(PL_SOCK_INTERFACE_WLN)
+		else
+			wln_dhcp_fail_ctr=wln_dhcp_fail_ctr+1
+		end if
+	end if
+	
+end sub
+
+sub callback_wln_failure(wln_state as en_wln_status_codes)
+end sub
+
+sub callback_wln_pre_buffrq(required_buff_pages as byte)
+end sub
+
+sub callback_wln_rescan_result(current_rssi as byte, scan_rssi as byte, different_ap as no_yes)
+end sub
+
+sub callback_wln_starting_association()
+end sub
+
+sub callback_wln_rescan_for_better_ap()
+end sub
+
+sub callback_wln_mkey_progress_update(progress as byte)
+end sub
+
+sub callback_dhcp_pre_clear_ip(interface as pl_sock_interfaces)
+end sub
+
+sub callback_dhcp_pre_buffrq(required_buff_pages as byte)
+end sub
+
+sub callback_dhcp_buff_released()
+end sub
